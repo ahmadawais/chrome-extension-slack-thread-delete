@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Slack Thread Deleter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="row">
+      <img src="icons/icon48.png" alt="" width="24" height="24">
+      <h1>Slack Thread Deleter</h1>
+    </div>
+    <p>Mark messages with the emoji, then delete their threads.</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <label for="emoji">Reaction emoji</label>
+      <input id="emoji" type="text" value=":red_circle:" spellcheck="false" placeholder=":red_circle:">
+      <button id="delete" class="primary danger">Delete marked threads</button>
+      <p class="hint">Deletes every thread whose root message has the emoji — replies first, then the root. Only marked threads are touched.</p>
+    </section>
+
+    <section id="status" class="card hidden">
+      <p id="status-text"></p>
+    </section>
+
+    <p id="error" class="error hidden"></p>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

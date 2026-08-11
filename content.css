@@ -1,0 +1,8 @@
+/*
+ * Dim messages while they are being deleted.
+ * [data-std-in-progress] is set on the message list item being deleted.
+ */
+li[data-std-in-progress="true"] [data-qa="message_container"] {
+  background: #d98c8c;
+  opacity: 0.6;
+}
