@@ -1,5 +1,7 @@
 # Slack Thread Deleter
 
+![Slack Thread Deleter popup](icons/slack-thread-delete.png)
+
 A Chrome extension that deletes **entire Slack threads**. It works two ways:
 
 1. **Marked threads** — react to a message with an emoji (default `:red_circle:`,
