@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
 const statusText = $("status-text");
 const deleteBtn = $("delete");
+const deletedBtn = $("delete-deleted");
 const emojiInput = $("emoji");
 const errorEl = $("error");
 
@@ -20,8 +21,10 @@ function clearError() {
 
 function setRunningUI(running) {
   deleteBtn.disabled = running;
+  deletedBtn.disabled = running;
   emojiInput.disabled = running;
   deleteBtn.textContent = running ? "Deleting…" : "Delete marked threads";
+  deletedBtn.textContent = running ? "Deleting…" : "Delete deleted threads";
 }
 
 function render(status) {
@@ -62,17 +65,15 @@ async function getStatus(tabId) {
   }
 }
 
-deleteBtn.addEventListener("click", async () => {
+async function runAction(action, emoji) {
   clearError();
-  const emoji = normalizeEmoji(emojiInput.value);
   try {
-    chrome.storage.local.set({ [EMOJI_KEY]: emoji });
     const tab = await findSlackTab();
     if (!tab || !tab.id) {
       showError("Open a Slack workspace (app.slack.com) first.");
       return;
     }
-    const res = await chrome.tabs.sendMessage(tab.id, { action: "delete-marked", emoji });
+    const res = await chrome.tabs.sendMessage(tab.id, { action, emoji });
     if (res && res.ok) {
       statusText.textContent = res.message || "Done.";
       statusEl.classList.remove("hidden");
@@ -86,6 +87,16 @@ deleteBtn.addEventListener("click", async () => {
     showError("Could not reach Slack. Reload the Slack tab and try again.");
     setRunningUI(false);
   }
+}
+
+deleteBtn.addEventListener("click", async () => {
+  const emoji = normalizeEmoji(emojiInput.value);
+  chrome.storage.local.set({ [EMOJI_KEY]: emoji });
+  runAction("delete-marked", emoji);
+});
+
+deletedBtn.addEventListener("click", () => {
+  runAction("delete-deleted");
 });
 
 async function poll() {
