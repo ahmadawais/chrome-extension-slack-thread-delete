@@ -205,22 +205,64 @@
     }
   }
 
-  // Close the thread flexpane. The X has no stable label, so find it by
-  // position: the pane header's rightmost icon button.
+  // Close the thread flexpane. The X has no stable label, so try several
+  // strategies: header icon button, any labeled close, Escape, then a click
+  // outside the pane.
   function closeThreadPane() {
     const pane = threadPane();
-    if (!pane) return;
-    const header = pane.querySelector(".p-threads_flexpane__header");
+    if (!pane) return true;
+
+    // Strategy 1: header icon buttons (rightmost is usually Close).
+    const header = pane.querySelector(
+      ".p-threads_flexpane__header, .p-flexpane_header, [class*='flexpane_header'], [class*='FlexpaneHeader']"
+    );
     const area = header || pane;
     const iconBtns = [...area.querySelectorAll("button")].filter(
       (b) =>
         !b.getAttribute("data-qa") &&
         (b.className || "").includes("c-icon_button")
     );
-    const closeBtn = iconBtns.length
-      ? iconBtns[iconBtns.length - 1]
-      : [...area.querySelectorAll("button")].pop();
-    if (closeBtn) closeBtn.click();
+    if (iconBtns.length) {
+      iconBtns[iconBtns.length - 1].click();
+      return false;
+    }
+
+    // Strategy 2: a button labeled close/dismiss.
+    const closeBtn = [...area.querySelectorAll("button")].find((b) =>
+      /close|dismiss/i.test(
+        (b.getAttribute("aria-label") || "") +
+          " " +
+          (b.getAttribute("data-qa") || "")
+      )
+    );
+    if (closeBtn) {
+      closeBtn.click();
+      return false;
+    }
+
+    // Strategy 3: Escape (Slack closes flexpanes on Escape).
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Escape",
+        code: "Escape",
+        keyCode: 27,
+      })
+    );
+    return false;
+  }
+
+  // A channel message whose root is a deleted-message tombstone ("This message
+  // was deleted."). The tombstone itself can't be deleted (no menu option) and
+  // the thread pane contains only replies — so every pane message is a reply.
+  function isTombstoneParent(parent) {
+    const container = parent.querySelector('[data-qa="message_container"]');
+    return (
+      !!container &&
+      /This message was deleted/.test(container.textContent || "") &&
+      !container.querySelector('[data-qa="message_content"] .c-message__body, [data-qa="message_text"]')
+    );
   }
 
   // Delete one marked message: its whole thread (replies + root) if it has
@@ -229,16 +271,28 @@
     if (threadOpenButton(parent)) {
       if (!(await openThreadOn(parent))) return false;
       await sleep(500);
+      const tombstone = isTombstoneParent(parent);
       const items = threadMessages().filter(isDeletableMessage);
-      queue = items.length ? items.slice(1) : [];
-      const root = rootMessage();
-      if (!queue.length && !root) {
+      if (tombstone) {
+        // Root is already deleted: every pane message is a reply.
+        queue = [...items];
+      } else {
+        // Normal thread: replies first, root last (Slack refuses root
+        // deletion while replies exist).
+        queue = items.length ? items.slice(1) : [];
+      }
+      if (!queue.length && !items.length) {
         closeThreadPane();
         return false;
       }
       await deleteThreadItems();
-      // The pane usually closes itself after the root is deleted; close it
-      // anyway in case it is still open.
+      if (!tombstone) {
+        // Only delete the root for a normal (non-tombstone) thread.
+        const root = rootMessage();
+        if (root) await deleteMessage(root);
+      }
+      // The pane usually closes itself after deletion; close it anyway in
+      // case it is still open.
       await sleep(600);
       closeThreadPane();
       await sleep(500);
@@ -248,44 +302,77 @@
     return deleteMessage(parent);
   }
 
+  // Shared driver: repeatedly find matching channel messages and delete their
+  // threads until none remain (Slack virtualizes, so rescan after each delete).
+  async function scanAndDeleteParents(findParents, doneLabel) {
+    const failedTs = new Set();
+    let deleted = 0;
+    let guard = 0;
+    while (guard++ < 60) {
+      const parents = findParents();
+      const parent = parents.find((p) => {
+        const ts = msgTs(p);
+        return !(ts && failedTs.has(ts));
+      });
+      if (!parent) break;
+
+      const ts = msgTs(parent);
+      const ok = await deleteOneThread(parent);
+      if (ok) {
+        deleted += 1;
+        failed = 0;
+      } else {
+        if (ts) failedTs.add(ts);
+        if (++failed >= 8) break;
+      }
+      sendStatus();
+      await sleep(600);
+    }
+    return {
+      ok: deleted > 0,
+      message: deleted ? `Deleted ${deleted} thread${deleted === 1 ? "" : "s"}.` : doneLabel,
+    };
+  }
+
   async function deleteMarkedThreads(emoji) {
     running = true;
     failed = 0;
-    const failedTs = new Set();
     try {
       const selector = emojiSelector(emoji);
-      let deleted = 0;
-      let guard = 0;
-      // Rescan after each deletion: Slack virtualizes the channel list, so
-      // the DOM shifts as messages disappear.
-      while (guard++ < 60) {
-        const parents = [...document.querySelectorAll(CHANNEL_ITEM_SELECTOR)].filter(
-          (i) => i.querySelector(selector)
-        );
-        const parent = parents.find((p) => {
-          const ts = msgTs(p);
-          return !(ts && failedTs.has(ts));
-        });
-        if (!parent) break;
+      const result = await scanAndDeleteParents(
+        () =>
+          [...document.querySelectorAll(CHANNEL_ITEM_SELECTOR)].filter((i) =>
+            i.querySelector(selector)
+          ),
+        "No marked threads found in this channel."
+      );
+      return result;
+    } catch (err) {
+      console.error("Slack Thread Deleter:", err);
+      return { ok: false, error: String((err && err.message) || err) };
+    } finally {
+      running = false;
+      clearInterval(statusTimer);
+      statusTimer = null;
+      queue = [];
+      sendStatus();
+    }
+  }
 
-        const ts = msgTs(parent);
-        const ok = await deleteOneThread(parent);
-        if (ok) {
-          deleted += 1;
-          failed = 0;
-        } else {
-          if (ts) failedTs.add(ts);
-          if (++failed >= 8) break;
-        }
-        sendStatus();
-        await sleep(600);
-      }
-      return {
-        ok: deleted > 0,
-        message: deleted
-          ? `Deleted ${deleted} thread${deleted === 1 ? "" : "s"}.`
-          : "No marked threads found in this channel.",
-      };
+  // Delete the replies of every thread whose root is already deleted
+  // (tombstone: "This message was deleted.").
+  async function deleteDeletedThreads() {
+    running = true;
+    failed = 0;
+    try {
+      const result = await scanAndDeleteParents(
+        () =>
+          [...document.querySelectorAll(CHANNEL_ITEM_SELECTOR)].filter(
+            (i) => isTombstoneParent(i) && i.querySelector('[data-qa="reply_bar_count"]')
+          ),
+        "No deleted threads found in this channel."
+      );
+      return result;
     } catch (err) {
       console.error("Slack Thread Deleter:", err);
       return { ok: false, error: String((err && err.message) || err) };
@@ -306,6 +393,11 @@
       sendResponse({ running, ...currentStatus() });
     } else if (msg && msg.action === "delete-marked") {
       deleteMarkedThreads(msg.emoji)
+        .then(sendResponse)
+        .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err) }));
+      return true; // async response
+    } else if (msg && msg.action === "delete-deleted") {
+      deleteDeletedThreads()
         .then(sendResponse)
         .catch((err) => sendResponse({ ok: false, error: String((err && err.message) || err) }));
       return true; // async response
