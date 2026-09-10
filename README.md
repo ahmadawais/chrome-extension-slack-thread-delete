@@ -2,19 +2,19 @@
 
 ![Slack Thread Deleter popup](icons/slack-thread-delete.png)
 
-Chrome extension that deletes **entire Slack threads** — all replies, then the root message (Slack refuses to delete a root while replies exist).
+Chrome extension that deletes **entire Slack threads** — all replies, then the root (Slack refuses to delete a root while replies exist).
 
-Two modes in the popup:
+Two popup modes:
 
-- **Delete marked threads** — delete every thread whose root message has the configured emoji (default `:red_circle:`, any shortcode like `:x:` works and persists).
-- **Delete deleted threads** — clean up replies left in threads whose root was already deleted (tombstones disappear once empty).
+- **Delete marked threads** — delete every thread whose root has the configured emoji (default `:red_circle:`, any shortcode works and persists).
+- **Delete deleted threads** — clean up orphaned replies in threads whose root was already deleted (tombstones vanish once empty).
 
-Only targeted threads are touched. The channel is rescanned after each deletion since Slack virtualizes the message list.
+Only targeted threads are touched; the channel is rescanned after each deletion since Slack virtualizes the message list.
 
 ## Install (unpacked)
 
-1. Download/clone this repo.
-2. Open `chrome://extensions` → enable **Developer mode** → **Load unpacked** and select this folder.
+1. Clone/download this repo.
+2. Open `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select this folder.
 3. Open `https://app.slack.com/` and use it.
 
 ## Usage
@@ -27,7 +27,7 @@ Only targeted threads are touched. The channel is rescanned after each deletion 
 
 - Only works on `app.slack.com`; messages you can't delete are skipped after a few attempts.
 - Works in channels, private channels, DMs, and group DMs.
-- No external dependencies, no tracking, no network calls. Only permission: Slack's domain.
+- No deps, no tracking, no network calls. Only permission: Slack's domain.
 
 ## Files
 
